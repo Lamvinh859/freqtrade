@@ -1,0 +1,74 @@
+import os
+import time
+import requests
+import schedule
+from tradingview_ta import TA_Handler, Interval
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+def send_telegram(message):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Lỗi: Chưa cấu hình Token hoặc Chat ID!")
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Lỗi gửi Telegram: {e}")
+
+def analyze_asset(symbol, exchange, screener, name):
+    try:
+        handler = TA_Handler(
+            symbol=symbol,
+            exchange=exchange,
+            screener=screener,
+            interval=Interval.INTERVAL_1_HOUR
+        )
+        analysis = handler.get_analysis()
+        summary = analysis.summary
+        indicators = analysis.indicators
+
+        rsi = round(indicators.get("RSI", 0), 2)
+        close_price = indicators.get("close", 0)
+
+        rec_map = {
+            "STRONG_BUY": "🚀 MUA MẠNH",
+            "BUY": "📈 MUA",
+            "NEUTRAL": "⚖️ TRUNG LẬP",
+            "SELL": "📉 BÁN",
+            "STRONG_SELL": "💥 BÁN MẠNH"
+        }
+        signal = rec_map.get(summary.get("RECOMMENDATION"), "KHÔNG XÁC ĐỊNH")
+
+        return (
+            f"📊 *{name} ({symbol})*\n"
+            f"💵 Giá hiện tại: `{close_price}`\n"
+            f"🎯 Tín hiệu: *{signal}*\n"
+            f"📌 RSI (14): `{rsi}`\n"
+            f"📊 Chi tiết: Mua {summary.get('BUY')} | Bán {summary.get('SELL')} | Trung lập {summary.get('NEUTRAL')}\n"
+        )
+    except Exception as e:
+        return f"❌ Lỗi phân tích {name}: {str(e)}"
+
+def run_job():
+    print("Đang quét thị trường...")
+    gold = analyze_asset("XAUUSD", "OANDA", "forex", "VÀNG (XAUUSD)")
+    oil = analyze_asset("USOIL", "TVC", "cfd", "DẦU THÔ WTI")
+
+    msg = f"🔔 *BÁO CÁO TÍN HIỆU THỊ TRƯỜNG*\n-----------------------------------\n\n{gold}\n-----------------------------------\n\n{oil}"
+    send_telegram(msg)
+
+schedule.every(1).hours.do(run_job)
+
+if __name__ == "__main__":
+    send_telegram("🚀 *Bot phân tích Dầu & Vàng đã sẵn sàng hoạt động 24/7!*")
+    run_job()
+    while True:
+        schedule.run_pending()
+        time.sleep(10)
